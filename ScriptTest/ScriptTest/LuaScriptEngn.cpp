@@ -1,5 +1,5 @@
 #include "LuaScriptEngn.h"
-#include "ScriptServerReg.h"
+#include "ScriptCommonReg.h"
 #include <fstream>
 #include <iostream>
 #include <string.h>
@@ -12,7 +12,7 @@ static void l_message(const char *pname, const char *msg, const char * func) {
 }
 
 static int report(lua_State *L, int status, const char* sFuncName) {
-	if (status != LUA_OK && !lua_isnil(L, -1)) {
+	if (status && !lua_isnil(L, -1)) {
 		const char *msg = lua_tostring(L, -1);
 		if (msg == NULL) msg = "(error object is not a string)";
 		l_message("lua", msg, sFuncName);
@@ -24,13 +24,21 @@ static int report(lua_State *L, int status, const char* sFuncName) {
 }
 
 static int traceback(lua_State *L) {
-	const char *msg = lua_tostring(L, 1);
-	if (msg)
-		luaL_traceback(L, L, msg, 1);
-	else if (!lua_isnoneornil(L, 1)) {  /* is there an error object? */
-		if (!luaL_callmeta(L, 1, "__tostring"))  /* try its 'tostring' metamethod */
-			lua_pushliteral(L, "(no error message)");
+	if (!lua_isstring(L, 1))  /* 'message' not a string? */
+		return 1;  /* keep it intact */
+	lua_getfield(L, LUA_GLOBALSINDEX, "debug");
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return 1;
 	}
+	lua_getfield(L, -1, "traceback");
+	if (!lua_isfunction(L, -1)) {
+		lua_pop(L, 2);
+		return 1;
+	}
+	lua_pushvalue(L, 1);  /* pass error message */
+	lua_pushinteger(L, 2);  /* skip this function and traceback */
+	lua_call(L, 2, 1);  /* call debug.traceback */
 	return 1;
 }
 
@@ -91,7 +99,7 @@ static int My_lua_loadfile(lua_State* L, std::string& sFileName)
 	}
 	int status = LUA_ERRERR;
 	if (lf.buffer != nullptr && lf.size > 0)
-		status = lua_load(L, My_Reader, &lf, sTempName.c_str(), "t");
+		status = lua_load(L, My_Reader, &lf, sTempName.c_str());
 	return status;
 }
 
@@ -195,7 +203,7 @@ lua_State* TLuaScriptEngn::LoadAllScript()
 	lua_State* L = luaL_newstate();
 	lua_gc(L, LUA_GCSTOP, 0);
 	luaL_openlibs(L);
-	luaL_requiref(L, "server", LuaOpen_ServerCommonLib, 0);
+	LuaOpen_ServerCommonLib(L);
 	//----注册服务器类对象方法
 	lua_gc(L, LUA_GCRESTART, 0);
 
@@ -205,7 +213,7 @@ lua_State* TLuaScriptEngn::LoadAllScript()
 	lua_pop(L, 1);
 
 	lua_getglobal(L, "package");
-	lua_getfield(L, -1, "searchers");
+	lua_getfield(L, -1, "loaders");
 	lua_remove(L, -2);
 	lua_pushinteger(L, 2);
 	lua_pushcfunction(L, My_LuaLoader);
@@ -226,14 +234,13 @@ char* TLuaScriptEngn::LoadFile(const std::string& sFileName, size_t& iSize)
 	iSize = 0;
 	std::string sPath(m_sAppRootPath + sFileName);
 	std::fstream file;
-	file.open(const_cast<char*>(sPath.c_str()), std::ios::in|std::ios::ate|std::ios::binary);	
+	file.open(sPath, std::ios::in | std::ios::ate | std::ios::binary);
 	if (file.good())
 	{		
 		iSize = file.tellg();
 		file.seekg(0, std::ios::beg);
 		file.read(m_pTempFileBuffer, FILE_MAX_SIZE);
 		file.close();
-		m_pTempFileBuffer[iSize] = '/0';
 		return m_pTempFileBuffer;
 	}
 	else
@@ -260,7 +267,7 @@ void TLuaScriptEngn::DoCommonScriptCall(const char* sFuncName)
 {
 	try
 	{
-		My_LuaFindFunction(m_lua, 1, sFuncName);
+		My_LuaFindFunction(m_lua, LUA_GLOBALSINDEX, sFuncName);
 		if (lua_isfunction(m_lua, -1))
 			report(m_lua, lua_pcall(m_lua, 0, 0, 0), sFuncName);
 		else
@@ -271,4 +278,25 @@ void TLuaScriptEngn::DoCommonScriptCall(const char* sFuncName)
 
 	}
 }
+
+void TLuaScriptEngn::DoCommonScriptCall(const char* sFuncName, int iParam, const std::string& sParam)
+{
+	try
+	{
+		My_LuaFindFunction(m_lua, LUA_GLOBALSINDEX, sFuncName);
+		if (lua_isfunction(m_lua, -1))
+		{
+			lua_pushinteger(m_lua, iParam);
+			lua_pushstring(m_lua, sParam.c_str());
+			report(m_lua, lua_pcall(m_lua, 2, 0, 0), sFuncName);
+		}
+		else
+			lua_pop(m_lua, 1);
+	}
+	catch (...)
+	{
+
+	}
+}
+
 /*******************************End Of LuaScriptEngn*************************************************/

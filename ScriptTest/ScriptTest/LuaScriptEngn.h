@@ -24,6 +24,7 @@ public:
 	bool ReloadAllScript();	
 	char* LoadFile(const std::string& sFileName, size_t& iSize);
 	void DoCommonScriptCall(const char* sFuncName);
+	void DoCommonScriptCall(const char* sFuncName, int iParam, const std::string& sParam);
 	std::string GetAppPath() { return m_sAppRootPath; }
 private:
 	TLuaScriptEngn();
