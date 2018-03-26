@@ -237,7 +237,7 @@ char* TLuaScriptEngn::LoadFile(const std::string& sFileName, size_t& iSize)
 	file.open(sPath, std::ios::in | std::ios::ate | std::ios::binary);
 	if (file.good())
 	{		
-		iSize = file.tellg();
+		iSize = (size_t)file.tellg();
 		file.seekg(0, std::ios::beg);
 		file.read(m_pTempFileBuffer, FILE_MAX_SIZE);
 		file.close();
